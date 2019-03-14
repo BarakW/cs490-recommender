@@ -81,13 +81,3 @@ class MovieRecommender:
                 predictions[self.num_to_movie[movie_id]] = movie_rating / counter
 
         print(predictions)
-
-recommender = MovieRecommender()
-test_ratings = {
-    "/movie/the-dark-knight-rises": 100,
-    "/movie/black-panther": 100,
-    "/movie/spider-man-into-the-spider-verse": 100,
-    "/movie/the-avengers-2012": 100,
-    "/movie/captain-america-civil-war": 100
-}
-recommender.recommend(test_ratings)
