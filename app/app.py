@@ -19,7 +19,7 @@ recommender = MovieRecommender()
 Responds to post requests to generate recommendations.
 Generated recommendations are stored under the user in firebase.
 """
-@app.route("/recommendations/<userid>", methods=["POST"])
+@app.route("/recommend/<userid>", methods=["POST"])
 def generate_recommendations(userid):
     user_ref = db.collection("users").document(userid)
 
@@ -36,3 +36,6 @@ def generate_recommendations(userid):
     })
 
     return Response(status=200)
+
+if __name__ == '__main__':
+    app.run(host='127.0.0.1', port=8080, debug=True)

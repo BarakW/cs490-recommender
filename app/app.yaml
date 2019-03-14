@@ -1,0 +1,7 @@
+runtime: python
+env: flex
+entrypoint: gunicorn -b :$PORT app:app --log-level debug
+service: recommender
+
+runtime_config:
+  python_version: 3

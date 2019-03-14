@@ -84,5 +84,4 @@ class MovieRecommender:
             if movie in predictions:
                 del predictions[movie]
 
-        print(predictions)
         return predictions
