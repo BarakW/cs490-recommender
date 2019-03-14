@@ -80,4 +80,9 @@ class MovieRecommender:
             if counter > 0:
                 predictions[self.num_to_movie[movie_id]] = movie_rating / counter
 
+        for movie in user_ratings:
+            if movie in predictions:
+                del predictions[movie]
+
         print(predictions)
+        return predictions
