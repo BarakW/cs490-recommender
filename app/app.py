@@ -19,23 +19,34 @@ recommender = MovieRecommender()
 Responds to post requests to generate recommendations.
 Generated recommendations are stored under the user in firebase.
 """
-@app.route("/recommend/<userid>", methods=["POST"])
-def generate_recommendations(userid):
-    user_ref = db.collection("users").document(userid)
+def generate_recommendations(stale_recs_snapshot, changes, readtime):
+    for user_snapshot in stale_recs_snapshot:
+        user_ref = user_snapshot.reference
 
-    try:
         user_doc = user_ref.get()
-    except:
-        return Response(status=400)
-    
-    user_ratings = user_doc.to_dict()["ratings"]
-    user_recommendations = recommender.recommend(user_ratings)
+        
+        if not user_doc:
+            return
+        elif user_doc.to_dict()["stale"] == False:
+            return
+        
+        user_ratings = user_doc.to_dict()["ratings"]
+        movies = list(user_ratings.keys())
+        for movie in movies:
+            user_ratings["/movie/" + movie] = user_ratings[movie]
+            del user_ratings[movie]
 
-    user_ref.update({
-        "recommendations": user_recommendations
-    })
+        user_recommendations = recommender.recommend(user_ratings)
 
-    return Response(status=200)
+        movies = list(user_recommendations.keys())
+        for movie in movies:
+            user_recommendations[movie[7:]] = user_recommendations[movie]
+            del user_recommendations[movie]
 
-if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=8080, debug=True)
+        user_ref.update({
+            "recommendations": user_recommendations,
+            "stale": False
+        })
+
+stale_recommendations_query = db.collection("users").where("stale", "==", True)
+query_watch = stale_recommendations_query.on_snapshot(generate_recommendations)
