@@ -1,6 +1,6 @@
 runtime: python
 env: flex
-entrypoint: gunicorn -b :$PORT app:app --log-level debug
+entrypoint: gunicorn -b :$PORT app:app --timeout 300
 service: recommender
 
 runtime_config:
