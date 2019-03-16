@@ -1,5 +1,5 @@
-import pandas as pd
 import numpy as np
+import csv
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import *
 
@@ -10,17 +10,15 @@ class MovieRecommender:
                  metric="cosine",
                  k=20,
                  user_based=False,
-                 file_path="mc_ratings.csv",
+                 file_path="clean_RT.csv",
                  df_critic_str="critic_url", # TODO: delete these when we switch to loading data from DB 
                  df_movie_str="movie_url"
                 ):
-        self.ratings = pd.read_csv(file_path)
-        self.critics = self.ratings[df_critic_str].values
-        self.movies = self.ratings[df_movie_str].values
+        self.ratings, self.critics, self.movies = self.read_ratings(file_path)
         self.user_based = user_based
 
-        self.num_critics = len(set(self.critics))
-        self.num_movies = len(set(self.movies))
+        self.num_critics = len(self.critics)
+        self.num_movies = len(self.movies)
         
         # hashmaps to translate from unique url -> id and back
         self.critic_to_num, self.num_to_critic = self.map_ids(self.critics)
@@ -48,17 +46,34 @@ class MovieRecommender:
         else:
             raise ValueError("Bad strategy")
     
+
+    # Read the CSV of sparse critic ratings
+    def read_ratings(self, file_path):
+        ratings = []
+        critics = set()
+        movies = set()
+
+        with open(file_path) as ratings_file:
+            ratings_reader = csv.reader(ratings_file)
+            next(ratings_reader)
+
+            for row in ratings_reader:
+                ratings.append([row[0], row[1], row[2]])
+                critics.add(row[0])
+                movies.add(row[1])
+
+        return ratings, list(critics), list(movies)
     
     # Generate numerical aliases for keys in a hashmap
     def map_ids(self, items):
         item_to_num = {}
         num_to_item = {}
         num = 0
+
         for item in items:
-            if item not in item_to_num:
-                item_to_num[item] = num
-                num_to_item[num] = item
-                num += 1
+            item_to_num[item] = num
+            num_to_item[num] = item
+            num += 1
                 
         return item_to_num, num_to_item
 
@@ -83,12 +98,12 @@ class MovieRecommender:
             tup_id_col = 0
         
         ratings_matrix = np.full((num_rows, num_cols), np.nan)
-        
+
         ## TODO: CHANGE THIS WHEN LOADING DATA FROM DB
-        for tup in data.iterrows():
-            row = row_ids[tup[1][tup_id_row]] # get id associated with row (either critic or movie)
-            col = col_ids[tup[1][tup_id_col]] # get id associated with col (the other one)
-            rating = max(int(tup[1][2]), 1) # ghetto workaround for storing explicit 0 vals
+        for record in self.ratings:
+            row = row_ids[record[tup_id_row]]
+            col = col_ids[record[tup_id_col]]
+            rating = max(int(record[2]), 1) # ghetto workaround for storing explicit 0 vals
             ratings_matrix[row, col] = rating
 
         # mean center each movie based on its ratings
@@ -129,7 +144,7 @@ class MovieRecommender:
 
         # get the highest similarity values from the similarity matrix
         item_id = row_ids[url]
-        neighbors = np.argsort(similarity_matrix[item_id] * -1)[:similar_count+1]
+        neighbors = np.argsort(self.similarity_matrix[item_id] * -1)[:similar_count+1]
         sim_values = self.similarity_matrix[item_id, neighbors]
 
         # pretty return the similarity values with their item
@@ -179,7 +194,7 @@ class MovieRecommender:
 
                     if similarity < 0: # don't use negatively related movies in the weighted avg
                         continue
-                    user_rating = user_ratings[num_to_movie[rated_movie]]
+                    user_rating = user_ratings[self.num_to_movie[rated_movie]]
                     running_sum += (similarity * user_rating)
                     running_denom += similarity
 
@@ -199,5 +214,5 @@ class MovieRecommender:
             # don't include movies user has already rated
             if self.num_to_movie[movie_id] in user_ratings:
                 continue
-            recs[num_to_movie[movie_id]] = preds[movie_id]
+            recs[self.num_to_movie[movie_id]] = preds[movie_id]
         return recs
