@@ -128,7 +128,8 @@ class MovieRecommender:
     def create_user_vector(self, cols, ratings, col_ids):
         vector = np.zeros(shape=(cols))
         for movie in ratings:
-            vector[col_ids[movie]] = ratings[movie]
+            if movie in col_ids:
+                vector[col_ids[movie]] = ratings[movie]
         return vector
 
     # return the most similar rows to a given item.
