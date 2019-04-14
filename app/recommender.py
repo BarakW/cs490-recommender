@@ -28,6 +28,7 @@ class MovieRecommender:
                 ):
         self.ratings, self.critics, self.movies = self.read_ratings(ratings_path)
         self.movies_dates = self.read_movies(movies_path)
+        print(self.movies_dates["1103281_traffic"])
         self.user_based = user_based
 
         self.num_critics = len(self.critics)
@@ -168,6 +169,10 @@ class MovieRecommender:
     
     # Generate recommendations from given ratings using KNN
     def knn_recommend(self, user_ratings, rec_count=100):
+        # Get the current time for filtering new movies
+        curr_time = datetime.now()
+        max_time_diff = timedelta(days=90)
+
         # get ids for movies that user has rated
         user_vector = self.create_user_vector(self.num_movies, user_ratings, self.movie_to_num)
         movies_rated_by_user = np.nonzero(user_vector)[0]
@@ -202,10 +207,19 @@ class MovieRecommender:
             preds[movie_id] = pred
 
         all_recs = {}
+        new_recs = {}
         movies = np.argpartition(preds * -1, rec_count)[:rec_count+1]
         for movie_id in movies:
+            movie_codename = self.num_to_movie[movie_id]
             # don't include movies user has already rated
-            if self.num_to_movie[movie_id] in user_ratings:
-                continue
-            all_recs[self.num_to_movie[movie_id]] = preds[movie_id]
-        return all_recs
+            if self.num_to_movie[movie_id] not in user_ratings:
+                all_recs[movie_codename] = preds[movie_id]
+
+                # Check if the movie is new enough to include
+                try: # Stupid rotten tomatoes with different movie codenames
+                    if (curr_time - self.movies_dates[movie_codename[7:]]) < max_time_diff:
+                        new_recs[movie_codename] = preds[movie_id]
+                except KeyError:
+                    pass
+
+        return all_recs, new_recs

@@ -36,15 +36,21 @@ def generate_recommendations(stale_recs_snapshot, changes, readtime):
             user_ratings["/movie/" + movie] = user_ratings[movie]
             del user_ratings[movie]
 
-        all_user_recommendations = recommender.recommend(user_ratings)
+        all_user_recs, new_user_recs = recommender.recommend(user_ratings)
 
-        movies = list(all_user_recommendations.keys())
+        movies = list(all_user_recs.keys())
         for movie in movies:
-            all_user_recommendations[movie[7:]] = all_user_recommendations[movie]
-            del all_user_recommendations[movie]
+            all_user_recs[movie[7:]] = all_user_recs[movie]
+            del all_user_recs[movie]
+
+            if movie in new_user_recs:
+                new_user_recs[movie[7:]] = new_user_recs[movie]
+                del new_user_recs[movie]
+
 
         user_ref.update({
-            "allRecommendations": all_user_recommendations,
+            "allRecommendations": all_user_recs,
+            "newRecommendations": new_user_recs,
             "stale": False
         })
 
