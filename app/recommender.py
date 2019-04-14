@@ -1,7 +1,18 @@
 import numpy as np
 import csv
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.preprocessing import *
+from datetime import datetime, timedelta
+
+
+def vector_cosine(X, Y):
+    X_mag = np.sqrt(X.dot(X))
+    Y_mag = np.sqrt(Y.dot(Y))
+
+    if X_mag == 0 or Y_mag == 0:
+        return -1
+    
+    return X.dot(Y) / (X_mag * Y_mag)
+
 
 # Recommender class to have persistent training data to recommend on
 class MovieRecommender:
@@ -10,11 +21,13 @@ class MovieRecommender:
                  metric="cosine",
                  k=20,
                  user_based=False,
-                 file_path="clean_RT.csv",
+                 ratings_path="ratings.csv",
+                 movies_path="movies.csv",
                  df_critic_str="critic_url", # TODO: delete these when we switch to loading data from DB 
                  df_movie_str="movie_url"
                 ):
-        self.ratings, self.critics, self.movies = self.read_ratings(file_path)
+        self.ratings, self.critics, self.movies = self.read_ratings(ratings_path)
+        self.movies_dates = self.read_movies(movies_path)
         self.user_based = user_based
 
         self.num_critics = len(self.critics)
@@ -24,22 +37,16 @@ class MovieRecommender:
         self.critic_to_num, self.num_to_critic = self.map_ids(self.critics)
         self.movie_to_num, self.num_to_movie = self.map_ids(self.movies)
 
-        self.ratings_matrix, self.processed_matrix = self.create_matrix(self.ratings)
+        self.ratings_matrix, processed_matrix = self.create_matrix(self.ratings)
         print("Ratings Matrix built")
-        self.similarity_matrix = cosine_similarity(self.processed_matrix)
+        similarity_matrix = cosine_similarity(processed_matrix)
         print("Similarity Matrix built")
         
-        # global mean rating for all movies
-        self.global_mean = np.mean(self.ratings_matrix[np.nonzero(self.ratings_matrix)])
-        
-        # save mean ratings for each row
-        self.mean_ratings = {}
         # save k closest neighbors to each row so prediction is fast
         self.k_neighbors = {}
         num_rows = self.num_critics if user_based else self.num_movies
         for row_id in range(num_rows):
-            self.mean_ratings[row_id] = np.mean(self.ratings_matrix[row_id, np.nonzero(self.ratings_matrix[row_id])])
-            self.k_neighbors[row_id] = set(np.argpartition(self.similarity_matrix[row_id] * -1, k)[:k+1])
+            self.k_neighbors[row_id] = set(np.argpartition(similarity_matrix[row_id] * -1, k)[:k+1])
 
         if strategy == "knn":
             self.recommend = self.knn_recommend
@@ -48,12 +55,12 @@ class MovieRecommender:
     
 
     # Read the CSV of sparse critic ratings
-    def read_ratings(self, file_path):
+    def read_ratings(self, ratings_path):
         ratings = []
         critics = set()
         movies = set()
 
-        with open(file_path) as ratings_file:
+        with open(ratings_path, encoding="utf-8") as ratings_file:
             ratings_reader = csv.reader(ratings_file)
             next(ratings_reader)
 
@@ -63,7 +70,28 @@ class MovieRecommender:
                 movies.add(row[1])
 
         return ratings, list(critics), list(movies)
+
     
+    # Read the csv of movie data, including date
+    def read_movies(self, movies_path):
+        movies = dict()
+
+        with open(movies_path, encoding="utf-8") as movies_file:
+            movies_reader = csv.reader(movies_file)
+            next(movies_reader)
+
+            for row in movies_reader:
+                movie_id = row[0]
+                if row[2] != "":
+                    releaseDate = datetime.strptime(row[2], "%Y-%m-%d %H:%M:%S")
+                else:
+                    releaseDate = datetime(1, 1, 1) # A long, long time ago
+
+                movies[movie_id] = releaseDate
+        
+        return movies
+
+
     # Generate numerical aliases for keys in a hashmap
     def map_ids(self, items):
         item_to_num = {}
@@ -132,42 +160,6 @@ class MovieRecommender:
                 vector[col_ids[movie]] = ratings[movie]
         return vector
 
-    # return the most similar rows to a given item.
-    # can be used to find most similar users or most similar movies to a given item
-    def get_similar_rows(self, url, similar_count):
-        # set correct hashmaps to use for looking up id and url
-        if self.user_based:
-            row_ids = self.critic_to_num
-            id_to_url = self.num_to_critic
-        else:
-            row_ids = self.movie_to_num
-            id_to_url = self.num_to_movie
-
-        # get the highest similarity values from the similarity matrix
-        item_id = row_ids[url]
-        neighbors = np.argsort(self.similarity_matrix[item_id] * -1)[:similar_count+1]
-        sim_values = self.similarity_matrix[item_id, neighbors]
-
-        # pretty return the similarity values with their item
-        sims = {}
-        for neighbor_idx, item_id in enumerate(neighbors):
-            sims[id_to_url[item_id]] = sim_values[neighbor_idx]
-        return sims
-
-    def most_reviewed_movies(self, num_movies_to_get):
-        # get number of ratings for every movie
-        num_ratings_per_movie = np.zeros(shape = (self.num_movies))
-        for movie_id in range(self.num_movies):
-            num_ratings_per_movie[movie_id] = len(np.nonzero(self.ratings_matrix[movie_id])[1])
-
-        # sort by most reviewed, and return with movie name
-        most_reviewed_movies = np.argsort(num_ratings_per_movie * -1)[:num_movies_to_get+1]
-        
-        mvs = {}
-        for m in most_reviewed_movies:
-            mvs[self.num_to_movie[m]] = num_ratings_per_movie[m]
-        return mvs
-
     
     # TODO: extend to user based predictions
     #       add new_movie_ids block that separates recommendations
@@ -175,7 +167,7 @@ class MovieRecommender:
     #       use baseline estimate with CF
     
     # Generate recommendations from given ratings using KNN
-    def knn_recommend(self, user_ratings, new_movie_ids=[], rec_count=30):
+    def knn_recommend(self, user_ratings, rec_count=100):
         # get ids for movies that user has rated
         user_vector = self.create_user_vector(self.num_movies, user_ratings, self.movie_to_num)
         movies_rated_by_user = np.nonzero(user_vector)[0]
@@ -191,7 +183,7 @@ class MovieRecommender:
             for rated_movie in movies_rated_by_user:
                 # keep track of weighted average of movies that this user has rated as we go
                 if rated_movie in self.k_neighbors[movie_id]:
-                    similarity = self.similarity_matrix[movie_id, rated_movie]
+                    similarity = vector_cosine(self.ratings_matrix[movie_id], self.ratings_matrix[rated_movie])
 
                     if similarity < 0: # don't use negatively related movies in the weighted avg
                         continue
@@ -205,15 +197,15 @@ class MovieRecommender:
                 weighted_avg = running_sum / running_denom
                 pred = weighted_avg
             else:
-                pred = 0#self.mean_ratings[movie_id]
+                pred = 0
 
             preds[movie_id] = pred
 
-        recs = {}
+        all_recs = {}
         movies = np.argpartition(preds * -1, rec_count)[:rec_count+1]
         for movie_id in movies:
             # don't include movies user has already rated
             if self.num_to_movie[movie_id] in user_ratings:
                 continue
-            recs[self.num_to_movie[movie_id]] = preds[movie_id]
-        return recs
+            all_recs[self.num_to_movie[movie_id]] = preds[movie_id]
+        return all_recs
