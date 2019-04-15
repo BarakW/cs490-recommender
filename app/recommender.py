@@ -1,10 +1,15 @@
 import numpy as np
 import csv
 from sklearn.metrics.pairwise import cosine_similarity
+from scipy import sparse
 from datetime import datetime, timedelta
 
 
-def vector_cosine(X, Y):
+def vector_cosine(X, Y, dense=True):
+    if not dense:
+        X = X.toarray()[0]
+        Y = Y.toarray()[0]
+
     X_mag = np.sqrt(X.dot(X))
     Y_mag = np.sqrt(Y.dot(Y))
 
@@ -26,28 +31,28 @@ class MovieRecommender:
                  df_critic_str="critic_url", # TODO: delete these when we switch to loading data from DB 
                  df_movie_str="movie_url"
                 ):
-        self.ratings, self.critics, self.movies = self.read_ratings(ratings_path)
+        ratings, critics, movies = self.read_ratings(ratings_path)
         self.movies_dates = self.read_movies(movies_path)
-        print(self.movies_dates["1103281_traffic"])
         self.user_based = user_based
 
-        self.num_critics = len(self.critics)
-        self.num_movies = len(self.movies)
+        self.num_critics = len(critics)
+        self.num_movies = len(movies)
         
         # hashmaps to translate from unique url -> id and back
-        self.critic_to_num, self.num_to_critic = self.map_ids(self.critics)
-        self.movie_to_num, self.num_to_movie = self.map_ids(self.movies)
+        self.critic_to_num, self.num_to_critic = self.map_ids(critics)
+        self.movie_to_num, self.num_to_movie = self.map_ids(movies)
 
-        self.ratings_matrix, processed_matrix = self.create_matrix(self.ratings)
+        self.ratings_matrix, processed_matrix = self.create_matrix(ratings)
         print("Ratings Matrix built")
-        similarity_matrix = cosine_similarity(processed_matrix)
+        similarity_matrix = cosine_similarity(processed_matrix, dense_output=False)
         print("Similarity Matrix built")
         
         # save k closest neighbors to each row so prediction is fast
         self.k_neighbors = {}
         num_rows = self.num_critics if user_based else self.num_movies
         for row_id in range(num_rows):
-            self.k_neighbors[row_id] = set(np.argpartition(similarity_matrix[row_id] * -1, k)[:k+1])
+            similarity_row = similarity_matrix[row_id].toarray()[0] # Turn row into numpy array for argpartition
+            self.k_neighbors[row_id] = set(np.argpartition(similarity_row * -1, k)[:k+1])
 
         if strategy == "knn":
             self.recommend = self.knn_recommend
@@ -129,7 +134,7 @@ class MovieRecommender:
         ratings_matrix = np.full((num_rows, num_cols), np.nan)
 
         ## TODO: CHANGE THIS WHEN LOADING DATA FROM DB
-        for record in self.ratings:
+        for record in data:
             row = row_ids[record[tup_id_row]]
             col = col_ids[record[tup_id_col]]
             rating = max(int(record[2]), 1) # ghetto workaround for storing explicit 0 vals
@@ -141,6 +146,8 @@ class MovieRecommender:
         # set nans back to 0
         ratings_matrix[np.isnan(ratings_matrix)] = 0
 
+        ratings_matrix = sparse.csr_matrix(ratings_matrix)
+
         return ratings_matrix, mean_centered
 
     # preprocessing strategy before we compute similarity matrix
@@ -151,7 +158,7 @@ class MovieRecommender:
         # set nans back to 0
         mean_centered[np.isnan(mean_centered)] = 0
         
-        return mean_centered
+        return sparse.csr_matrix(mean_centered)
 
     # Generate user vector to run algorithms on
     def create_user_vector(self, cols, ratings, col_ids):
@@ -188,7 +195,7 @@ class MovieRecommender:
             for rated_movie in movies_rated_by_user:
                 # keep track of weighted average of movies that this user has rated as we go
                 if rated_movie in self.k_neighbors[movie_id]:
-                    similarity = vector_cosine(self.ratings_matrix[movie_id], self.ratings_matrix[rated_movie])
+                    similarity = vector_cosine(self.ratings_matrix[movie_id], self.ratings_matrix[rated_movie], dense=False)
 
                     if similarity < 0: # don't use negatively related movies in the weighted avg
                         continue
