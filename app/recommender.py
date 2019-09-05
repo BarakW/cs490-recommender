@@ -14,7 +14,7 @@ def vector_cosine(X, Y, dense=True):
     Y_mag = np.sqrt(Y.dot(Y))
 
     if X_mag == 0 or Y_mag == 0:
-        return -1
+        return -1 # Hack to make null vectors maximally distant
     
     return X.dot(Y) / (X_mag * Y_mag)
 
@@ -42,9 +42,9 @@ class MovieRecommender:
         self.critic_to_num, self.num_to_critic = self.map_ids(critics)
         self.movie_to_num, self.num_to_movie = self.map_ids(movies)
 
-        self.ratings_matrix, processed_matrix = self.create_matrix(ratings)
+        _, self.processed_matrix = self.create_matrix(ratings)
         print("Ratings Matrix built")
-        similarity_matrix = cosine_similarity(processed_matrix, dense_output=False)
+        similarity_matrix = cosine_similarity(self.processed_matrix, dense_output=False)
         print("Similarity Matrix built")
         
         # save k closest neighbors to each row so prediction is fast
@@ -195,7 +195,7 @@ class MovieRecommender:
             for rated_movie in movies_rated_by_user:
                 # keep track of weighted average of movies that this user has rated as we go
                 if rated_movie in self.k_neighbors[movie_id]:
-                    similarity = vector_cosine(self.ratings_matrix[movie_id], self.ratings_matrix[rated_movie], dense=False)
+                    similarity = vector_cosine(self.processed_matrix[movie_id], self.processed_matrix[rated_movie], dense=False)
 
                     if similarity < 0: # don't use negatively related movies in the weighted avg
                         continue
